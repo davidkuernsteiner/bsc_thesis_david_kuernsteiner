@@ -1,9 +1,7 @@
 import copy
 from custom_fs.models import MTWrapper
-from custom_fs.train import MTTrainLoop, MAMLTrainLoop
 from custom_fs.plot import *
 from custom_fs.metrics import DeltaAUPRC
-import torchmetrics
 import json
 import torch
 import numpy as np
@@ -64,8 +62,6 @@ class EvalModel:
                 _patience = 5
             else:
                 _patience -= 1
-
-
 
         _metric = {**metric.compute(), **{"DeltaAUPRC": _key_metric}}
         _metric = {key: float(value.data.cpu()) for key, value in _metric.items()}

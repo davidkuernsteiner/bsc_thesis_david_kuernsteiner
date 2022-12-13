@@ -7,13 +7,13 @@ import torch.nn.functional as F
 # LOSS FUNCTIONS
 
 
-class MaskedBCE(torch.nn.CrossEntropyLoss):
+class MaskedBCE(torch.nn.BCEWithLogitsLoss):
 
     def __init__(self, weight=None, size_average=None, reduce=None, reduction: str = 'mean') -> None:
         super(MaskedBCE, self).__init__(weight, size_average, reduce, reduction)
 
     def forward(self, input: torch.Tensor, target: torch.Tensor, weight) -> torch.Tensor:
-        return F.binary_cross_entropy(input, target, weight=weight, reduction=self.reduction)
+        return F.binary_cross_entropy_with_logits(input, target, weight=weight, reduction=self.reduction)
 
 
 # METRICS

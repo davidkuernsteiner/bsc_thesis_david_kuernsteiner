@@ -3,7 +3,7 @@ import torch.optim
 from torch.utils.data import DataLoader
 from custom_fs.models import MTWrapper, HyperFCDNN
 from custom_fs.metrics import DeltaAUPRC
-from custom_fs.data import *
+from custom_fs.mt.data import *
 from tqdm import tqdm
 import wandb
 import optuna
@@ -12,7 +12,7 @@ import copy
 from learn2learn.algorithms import MAML
 
 
-class MTTrainLoop:
+class MTTrainLoopSigmoid:
 
     def __init__(self, dataset: MTDataset, study_name, max_epochs, n_support=256, seed=123):
 
@@ -151,9 +151,9 @@ class MTTrainLoop:
             torch.save(self.best_model, os.path.join(os.getcwd(), "best_models", f"{self.study_name}"))
 
 
-class MAMLTrainLoop:
+class MTTrainLoopSoftmax:
 
-    def __init__(self, dataset: MAMLDataset, study_name, max_epochs, n_support=16, seed=123):
+    def __init__(self, dataset: MTDataset, study_name, max_epochs, n_support=256, seed=123):
 
         self.dataset = dataset
         self.max_epochs = max_epochs
@@ -166,15 +166,13 @@ class MAMLTrainLoop:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
         print(f"Using device: {device}")
-        self.loss_fn = torch.nn.BCEWithLogitsLoss()
-        self.metric = DeltaAUPRC()
+        train_loss_fn = torch.nn.CrossEntropyLoss()
 
-        model = HyperFCDNN(trial).to(device)
-        maml = MAML(model, lr=trial.suggest_float("meta_lr", 0.0001, 0.001))
-        optimizer = torch.optim.Adam(model.parameters(), lr=trial.suggest_float("lr", 0.0005, 0.005))
-        task_batch_size = trial.suggest_int("task_batch_size", 1, 10)
-        k = trial.suggest_int("k", 2, 10)
-        adaptation_steps = trial.suggest_int("adaptation_steps", 1, 10)
+        model = MTWrapper(4938, trial).to(device)
+        train_optimizer = torch.optim.Adam(model.parameters(), lr=trial.suggest_float("lr", 0.0005, 0.005))
+        train_loader = DataLoader(self.dataset.train_set, batch_size=trial.suggest_int("batch_size", 256, 4096),
+                                  shuffle=True,
+                                  num_workers=1, pin_memory=False)
 
         config = dict(trial.params)
         config["trial.number"] = trial.number
@@ -185,39 +183,42 @@ class MAMLTrainLoop:
                    name=f"{self.study_name}_run_{trial.number}",
                    reinit=True)
 
+        model.device = device
+        self.best_model = copy.deepcopy(model)
         best_avg_dauprc = -np.inf
 
-        for epoch in range(self.max_epochs):
+        def train_step(x, ids):
 
-            train_loss = 0
-            self.dataset.build_train_set(k)
-            for iteration in tqdm(range(self.dataset.n_train_tasks // task_batch_size), desc="Train progress"):
+            x, y = x.to(device), ids.to(device)
+            pred = model(x)
+            loss = train_loss_fn(pred, y)
 
-                optimizer.zero_grad()
+            train_optimizer.zero_grad()
+            loss.backward()
+            train_optimizer.step()
 
-                for task in range(task_batch_size):
-                    task = next(self.dataset.train_set)
-                    learner = maml.clone()
-                    eval_error = self.adapt_to_task(task, learner, adaptation_steps=adaptation_steps)
-                    train_loss += eval_error
-                    eval_error.backward()
+            return loss
 
-                for p in maml.parameters():
-                    p.grad.data.mul_(1.0 / task_batch_size)
-                optimizer.step()
+        for epoch in range(1, self.max_epochs):
 
-            avg_train_loss = train_loss / (self.dataset.n_train_tasks // task_batch_size)
+            model.pretrain()
+            total_train_loss = 0
+            for features, labels, task_ids in tqdm(train_loader, desc=f"Epoch {epoch} progress", total=len(train_loader)):
 
-            print(f"epoch {epoch + 1}: average train loss {avg_train_loss}")
+                batch_loss = train_step(features, task_ids)
+                total_train_loss += batch_loss
 
+            avg_train_loss = total_train_loss / len(train_loader)
+            print(f"Epoch {epoch} average train loss: {avg_train_loss}")
+
+            self.model = model
             total_dauprc = []
             i = 0
-
             self.dataset.build_finetuning_set(self.n_support, DataFold.VALIDATION)
 
             for finetune_train_loader, finetune_test_loader, stats, task_name in tqdm(self.dataset.finetuning_set,
                                                                                       desc="Validation progress"):
-                self.model = copy.deepcopy(model)
+
                 dauprc = self.finetune_on_task(finetune_train_loader, finetune_test_loader, stats)
                 total_dauprc.append(dauprc)
                 i += 1
@@ -243,20 +244,6 @@ class MAMLTrainLoop:
 
         return best_avg_dauprc
 
-    def adapt_to_task(self, data, learner, adaptation_steps):
-
-        x_supp, y_supp, x_query, y_query = tuple(array.to(self.device) for array in data[0])
-
-        for step in range(adaptation_steps):
-            pred = torch.reshape(learner(x_supp), y_supp.shape)
-            train_error = self.loss_fn(pred, y_supp)
-            learner.adapt(train_error)
-
-        pred = torch.reshape(learner(x_query), y_query.shape)
-        valid_error = self.loss_fn(pred, y_query)
-
-        return valid_error
-
     def finetune_on_task(self, _train_loader, _test_loader, pos_label_ratio):
 
         finetune_loss_fn = torch.nn.BCEWithLogitsLoss()
@@ -266,6 +253,7 @@ class MAMLTrainLoop:
         _delta = 0.001
         _patience = 5
 
+        self.model.finetune()
         finetune_optimizer = torch.optim.Adam(self.model.parameters())
 
         while _patience > 0:
@@ -300,8 +288,4 @@ class MAMLTrainLoop:
 
         if study.best_trial == trial:
             torch.save(self.best_model, os.path.join(os.getcwd(), "best_models", f"{self.study_name}"))
-
-
-
-
 
