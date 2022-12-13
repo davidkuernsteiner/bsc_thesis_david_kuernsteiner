@@ -1,6 +1,6 @@
 import torch
 from torchmetrics.classification import BinaryPrecisionRecallCurve
-from torchmetrics.functional import auc
+from sklearn.metrics import auc
 import torch.nn.functional as F
 
 
