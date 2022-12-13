@@ -2,14 +2,13 @@ import os
 import torch.optim
 from torch.utils.data import DataLoader
 from custom_fs.models import MTWrapper, HyperFCDNN
-from custom_fs.metrics import DeltaAUPRC
+from custom_fs.metrics import DeltaAUPRC, MaskedBCE
 from custom_fs.mt.data import *
 from tqdm import tqdm
 import wandb
 import optuna
 from custom_fs.plot import *
 import copy
-from learn2learn.algorithms import MAML
 
 
 class MTTrainLoopSigmoid:
@@ -27,7 +26,7 @@ class MTTrainLoopSigmoid:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
         print(f"Using device: {device}")
-        train_loss_fn = torch.nn.CrossEntropyLoss()
+        train_loss_fn = MaskedBCE(reduction="sum")
 
         model = MTWrapper(4938, trial).to(device)
         train_optimizer = torch.optim.Adam(model.parameters(), lr=trial.suggest_float("lr", 0.0005, 0.005))
@@ -48,11 +47,13 @@ class MTTrainLoopSigmoid:
         self.best_model = copy.deepcopy(model)
         best_avg_dauprc = -np.inf
 
-        def train_step(x, ids):
+        def train_step(x, labels, ids):
 
-            x, y = x.to(device), ids.to(device)
+            x, labels, ids = x.to(device), labels.to(device), ids.to(device)
+            y = get_label_matrix(labels, ids, 4938)
+            loss_mask = get_loss_mask(y)
             pred = model(x)
-            loss = train_loss_fn(pred, y)
+            loss = train_loss_fn(pred, y, weight=loss_mask)
 
             train_optimizer.zero_grad()
             loss.backward()
@@ -66,7 +67,7 @@ class MTTrainLoopSigmoid:
             total_train_loss = 0
             for features, labels, task_ids in tqdm(train_loader, desc=f"Epoch {epoch} progress", total=len(train_loader)):
 
-                batch_loss = train_step(features, task_ids)
+                batch_loss = train_step(features, labels, task_ids)
                 total_train_loss += batch_loss
 
             avg_train_loss = total_train_loss / len(train_loader)

@@ -22,6 +22,11 @@ def get_label_matrix(labels, ids, dim):
 
     return (matrix + 1) / 2
 
+def get_loss_mask(label_matrix):
+
+    mask = torch.where(label_matrix != 0.5, 1, 0)
+
+    return mask
 
 class Normalizer:
 
