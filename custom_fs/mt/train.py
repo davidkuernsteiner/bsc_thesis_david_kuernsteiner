@@ -242,14 +242,10 @@ class MTTrainLoopSoftmax:
         finetune_loss_fn = torch.nn.BCEWithLogitsLoss()
         metric = DeltaAUPRC()
 
-        _best = -np.inf
-        _delta = 0.001
-        _patience = 5
-
         self.model.finetune()
         finetune_optimizer = torch.optim.Adam(self.model.parameters())
 
-        while _patience > 0:
+        for i in range(10):
 
             for x_train, y_train in _train_loader:
                 x_train, y_train = x_train.to(self.device), y_train.to(self.device)
@@ -259,23 +255,17 @@ class MTTrainLoopSoftmax:
                 loss.backward()
                 finetune_optimizer.step()
 
-            self.model.eval()
-            for x_test, y_test in _test_loader:
-                x_test, y_test = x_test.to(self.device), y_test.to(self.device)
-                with torch.no_grad():
-                    pred = torch.sigmoid(torch.reshape(self.model(x_test), y_test.shape))
-                    metric.update(pred, y_test)
-            self.model.train()
+        self.model.eval()
+        for x_test, y_test in _test_loader:
+            x_test, y_test = x_test.to(self.device), y_test.to(self.device)
+            with torch.no_grad():
+                pred = torch.sigmoid(torch.reshape(self.model(x_test), y_test.shape))
+                metric.update(pred, y_test)
+        self.model.train()
 
-            _dauprc = metric.compute(pos_label_ratio["test"])
+        _dauprc = metric.compute(pos_label_ratio["test"])
 
-            if _dauprc > _best + _delta:
-                _best = _dauprc
-                _patience = 5
-            else:
-                _patience -= 1
-
-        return _best.data.cpu().numpy()
+        return _dauprc.data.cpu().numpy()
 
     def checkpoint_callback(self, study, trial):
 
