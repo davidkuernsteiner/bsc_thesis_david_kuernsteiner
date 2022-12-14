@@ -49,9 +49,9 @@ class MTTrainLoopSigmoid:
 
         def train_step(x, labels, ids):
 
-            x, labels, ids = x.to(device), labels.to(device), ids.to(device)
             y = get_label_matrix(labels, ids, 4938)
             loss_mask = get_loss_mask(y)
+            x, y, loss_mask = x.to(device), y.to(device), loss_mask.to(device)
             pred = model(x)
             loss = train_loss_fn(pred, y, weight=loss_mask)
 

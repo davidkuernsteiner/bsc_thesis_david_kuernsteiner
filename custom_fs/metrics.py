@@ -26,6 +26,6 @@ class DeltaAUPRC(BinaryPrecisionRecallCurve):
 
     def compute(self, pos_label_ratio):
         prc = super().compute()
-        auprc = auc(prc[1], prc[0])
+        auprc = torch.tensor(auc(prc[1].cpu(), prc[0].cpu()))
 
         return auprc - pos_label_ratio
