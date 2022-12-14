@@ -1,4 +1,6 @@
 import copy
+import os.path
+
 from custom_fs.models import MTWrapper
 from custom_fs.plot import *
 from custom_fs.metrics import DeltaAUPRC
@@ -28,13 +30,9 @@ class EvalModel:
         metric = self.metric.to(self.device)
         key_metric = self.key_metric
 
-        _best = -np.inf
-        _delta = 0.001
-        _patience = 5
-
         finetune_optimizer = torch.optim.Adam(self.task_model.parameters())
 
-        while _patience > 0:
+        for i in range(10):
 
             for x_supp, y_supp in support_set:
                 x_supp, y_supp = x_supp.to(self.device), y_supp.to(self.device)
@@ -44,24 +42,18 @@ class EvalModel:
                 loss.backward()
                 finetune_optimizer.step()
 
-            self.task_model.eval()
-            key_metric.reset()
-            metric.reset()
-            for x_query, y_query in query_set:
-                x_query, y_query = x_query.to(self.device), y_query.to(self.device)
-                with torch.no_grad():
-                    pred = torch.sigmoid(torch.reshape(self.task_model(x_query), y_query.shape))
-                    key_metric.update(pred, y_query)
-                    metric.update(pred, y_query)
-            self.task_model.train()
+        self.task_model.eval()
+        key_metric.reset()
+        metric.reset()
+        for x_query, y_query in query_set:
+            x_query, y_query = x_query.to(self.device), y_query.to(self.device)
+            with torch.no_grad():
+                pred = torch.sigmoid(torch.reshape(self.task_model(x_query), y_query.shape))
+                key_metric.update(pred, y_query)
+                metric.update(pred, y_query)
+        self.task_model.train()
 
-            _key_metric = key_metric.compute(pos_label_ratio["test"])
-
-            if _key_metric > _best + _delta:
-                _best = _key_metric
-                _patience = 5
-            else:
-                _patience -= 1
+        _key_metric = key_metric.compute(pos_label_ratio["test"])
 
         _metric = {**metric.compute(), **{"DeltaAUPRC": _key_metric}}
         _metric = {key: float(value.data.cpu()) for key, value in _metric.items()}
@@ -102,5 +94,5 @@ class EvalModel:
 
         summary = merge({}, *summary, strategy=Strategy.ADDITIVE)
 
-        with open(f"{model_name}_best_model_metrics", "w") as outfile:
+        with open(os.path.join("model_metrics", f"{model_name}_best_model_metrics"), "w") as outfile:
             json.dump(summary, outfile)
