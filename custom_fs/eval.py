@@ -94,5 +94,5 @@ class EvalModel:
 
         summary = merge({}, *summary, strategy=Strategy.ADDITIVE)
 
-        with open(os.path.join("model_metrics", f"{model_name}_best_model_metrics"), "w") as outfile:
+        with open(os.path.join("model_metrics", f"{model_name}_best_model_metrics.json"), "w") as outfile:
             json.dump(summary, outfile)
