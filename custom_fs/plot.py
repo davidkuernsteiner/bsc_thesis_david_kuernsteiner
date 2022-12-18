@@ -48,11 +48,13 @@ def plot_avg_dauprc_with_error(mean, std, model_names, DataFold, n_support):
     else:
         fold = "Test"
 
-    symbols = ["o", "s", "^"]
+    symbols = ["^", "s", "o"]
+    colors = ["red", "orange", "blue"]
     fig, ax = plt.subplots()
     ax.set_title(f"Average DeltaAUPRC on {fold} set")
     for i, model in enumerate(model_names):
-        ax.errorbar(n_support, mean[i], yerr=[std[i], std[i]], label=model, marker=symbols[i], mec="black",
+        ax.errorbar(n_support, mean[i], yerr=[std[i], std[i]], label=model,
+                    marker=symbols[i], mec="black", color=colors[i],
                     linewidth=1, markersize=4)
 
     plt.xticks(n_support)
